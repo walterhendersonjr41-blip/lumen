@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Lumen</title>
+<meta name="description" content="Lumen stands inside any photo. Tell it to change the picture, or ask what it sees, even past the frame.">
+<meta name="theme-color" content="#071014">
+<meta property="og:title" content="Lumen">
+<meta property="og:description" content="It stands in the photo. Tell it to change the picture, or ask what it sees.">
+<meta property="og:image" content="og.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600&family=Syne:wght@600;700&display=swap">
+<link rel="preload" as="image" href="scenes/station.jpg">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main id="studio" class="studio" data-busy="idle">
+  <img id="stage" class="stage-photo" src="scenes/station.jpg" alt="">
+  <div class="stage-shade"></div>
+  <div id="scan" class="scan" hidden></div>
+  <div id="veil" class="drop-veil" hidden>Drop the photo. I'll step in.</div>
+
+  <header class="topbar">
+    <div class="brand"><div class="mark">Lumen</div><div id="place" class="place">Fuel island</div></div>
+    <div class="actions">
+      <button id="btnScenes" type="button" class="icon-btn" aria-label="Choose a scene" title="Choose a scene">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 22H4a2 2 0 0 1-2-2V6"/><path d="m22 13-1.296-1.296a2.41 2.41 0 0 0-3.408 0L11 18"/><circle cx="12" cy="8" r="2"/><rect width="16" height="16" x="6" y="2" rx="2"/></svg>
+      </button>
+      <label class="icon-btn" aria-label="Upload a photo" title="Upload a photo">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 5h6"/><path d="M19 2v6"/><path d="M21 11.5V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7.5"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/><circle cx="9" cy="9" r="2"/></svg>
+        <input id="file1" class="file-hit" type="file" accept="image/*">
+      </label>
+      <button id="btnUndo" type="button" class="icon-btn" aria-label="Undo the last change" title="Undo" disabled>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+      </button>
+      <button id="btnKey" type="button" class="icon-btn" aria-label="AI settings" title="AI settings (your own xAI key)">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15.5 7.5 2.3 2.3a1 1 0 0 0 1.4 0l2.1-2.1a1 1 0 0 0 0-1.4L19 4"/><path d="m21 2-9.6 9.6"/><circle cx="7.5" cy="15.5" r="5.5"/></svg>
+        <span id="keyDot" class="key-dot" hidden></span>
+      </button>
+    </div>
+  </header>
+
+  <div class="bubble-wrap">
+    <div class="bubble" aria-live="polite">
+      <p id="kicker" class="kicker" hidden></p>
+      <p id="youSaid" class="you-said" hidden></p>
+      <p id="next" class="you-said" hidden></p>
+      <p id="say" class="say"></p>
+      <div class="bubble-tools">
+        <button id="btnExport" type="button" class="hear export">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>Export
+        </button>
+        <button id="btnStop" type="button" class="hear stop" hidden>Stop</button>
+        <button id="btnHear" type="button" class="hear">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z"/><path d="M16 9a5 5 0 0 1 0 6"/><path d="M19.364 18.364a9 9 0 0 0 0-12.728"/></svg><span id="hearLabel">Hear</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div class="guide-anchor" aria-hidden="true">
+    <div class="guide-glow"></div>
+    <img class="guide" src="scenes/guide.png" alt="">
+  </div>
+
+  <form id="dock" class="dock" autocomplete="off">
+    <div id="chips" class="chip-row"></div>
+    <div class="composer">
+      <label class="sr-only" for="command">Tell Lumen what to change or ask</label>
+      <input id="command" placeholder="Any command. Chain them with then." enterkeyhint="send">
+      <button id="btnMic" type="button" class="icon-btn" aria-label="Speak a command" aria-pressed="false">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg>
+      </button>
+      <button id="btnSend" type="submit" class="send" aria-label="Send" disabled>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/><path d="m21.854 2.147-10.94 10.939"/></svg>
+      </button>
+    </div>
+  </form>
+
+  <div id="sceneSheet" class="sheet-backdrop" hidden>
+    <div class="sheet" role="dialog" aria-label="Choose a scene">
+      <div class="sheet-head"><h2>Step into a photo</h2>
+        <button type="button" class="icon-btn" data-close aria-label="Close"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+      </div>
+      <p class="sheet-copy">Drop a photo on the frame, paste one, or pick it below. Any command rewrites it. Questions can reach past the edge.</p>
+      <div id="sceneGrid" class="scene-grid"></div>
+      <label class="upload-row">Use a photo from your camera<input id="file2" class="file-hit" type="file" accept="image/*"></label>
+    </div>
+  </div>
+
+  <div id="keySheet" class="sheet-backdrop" hidden>
+    <div class="sheet" role="dialog" aria-label="AI settings">
+      <div class="sheet-head"><h2>Bring your own AI key</h2>
+        <button type="button" class="icon-btn" data-close aria-label="Close"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+      </div>
+      <p class="sheet-copy">The three demo scenes work without a key. To rewrite your own photos and answer any question, paste an xAI API key from <a href="https://console.x.ai" target="_blank" rel="noopener">console.x.ai</a>. It is saved only in this browser (localStorage) and sent only to api.x.ai. Usage is billed to your xAI account.</p>
+      <form id="keyForm" class="key-form">
+        <label>xAI API key<input id="keyInput" type="password" placeholder="xai-…" autocomplete="off" spellcheck="false"></label>
+        <label>Vision chat model<input id="chatModel" type="text" spellcheck="false"></label>
+        <label>Image edit model<input id="imageModel" type="text" spellcheck="false"></label>
+        <div class="key-actions">
+          <button type="button" id="keyClear" class="ghost">Forget key</button>
+          <button type="submit" class="primary">Save</button>
+        </div>
+        <p id="keyStatus" class="key-status" aria-live="polite"></p>
+      </form>
+    </div>
+  </div>
+</main>
+<script src="scenes.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
