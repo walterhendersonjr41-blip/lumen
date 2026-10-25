@@ -154,6 +154,10 @@
     if (isAsk(cmd)) {
       var canned = cannedAnswer(cmd);
       if (canned && (!key || !state.edited)) return Promise.resolve(answered(cmd, next, canned));
+      if (!key && !canned && freeOK()) {
+        setBusy("think"); setBubble({ kicker: "Free AI is looking", you: cmd, next: next, say: "…" });
+        return freeAsk(cmd, ctrl.signal).then(function (ans) { answered(cmd, next, ans); }, function () { setBubble({ you: cmd, next: next, say: "The free AI is busy right now. Try again in a minute, or add your own xAI key for instant answers." }); });
+      }
       if (!key) { setBubble({ you: cmd, next: next, say: canned || NO_KEY }); return Promise.resolve(); }
       setBusy("think"); setBubble({ kicker: "Reading the frame", you: cmd, next: next, say: "…" });
       return askVision(cmd, ctrl.signal).then(function (ans) { answered(cmd, next, ans); });
@@ -221,6 +225,20 @@
     });
   }
   var SYSTEM = "You are Lumen, a small glowing guide standing inside the user's photograph. Speak in first person from where you stand in the picture, warm and concrete, in 1 to 3 short sentences. Describe what is visible, and when asked about things past the edge of the frame, behind objects, or looking back toward the viewer, make a plausible, grounded guess that fits the scene and say it as what you see. Never mention being an AI or a model.";
+  /* Free keyless fallback (Pollinations text AI, no sign-up). It can't see pixels, so it only runs on the
+     built-in scenes, using their written descriptions; your own photos still need your xAI key. */
+  function freeOK() { var s = SCENES[state.scene]; return !!(s && !state.edited && state.src === s.src && s.answers); }
+  function freeAsk(cmd, signal) {
+    var s = SCENES[state.scene], facts = Object.keys(s.answers).map(function (k) { return s.answers[k]; }).join(" ");
+    var sys = SYSTEM + " You can't see the image directly; this is what is in it: " + s.title + " (" + s.place + "). " + facts;
+    var body = { model: "openai", messages: [{ role: "system", content: sys }].concat(state.history.slice(-MAX_HISTORY).filter(function (m) { return typeof m.content === "string"; })).concat([{ role: "user", content: cmd }]), private: true, referrer: "lumen", reasoning_effort: "low" };
+    function once() {
+      return fetch("https://text.pollinations.ai/openai", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: signal })
+        .then(function (r) { if (!r.ok) throw new Error("busy " + r.status); return r.json(); })
+        .then(function (j) { var t = j && j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content; if (!t) throw new Error("empty"); return String(t).split(/\n\s*(?:---|\*\*Sponsor)/)[0].replace(/\*\*/g, "").trim(); });
+    }
+    return once().catch(function () { return new Promise(function (r) { setTimeout(r, 4000); }).then(once); });
+  }
   function askVision(cmd, signal) {
     return toJpegDataUrl(state.src).then(function (url) {
       var msgs = [{ role: "system", content: SYSTEM }].concat(state.history.slice(-MAX_HISTORY));

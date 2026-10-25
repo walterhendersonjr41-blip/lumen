@@ -16,6 +16,7 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600&family=Syne:wght@600;700&display=swap">
 <link rel="preload" as="image" href="scenes/station.jpg">
 <link rel="stylesheet" href="style.css">
+<link rel="manifest" href="manifest.webmanifest"><link rel="apple-touch-icon" href="icons/icon-192.png">
 </head>
 <body>
 <main id="studio" class="studio" data-busy="idle">
@@ -113,5 +114,6 @@
 </main>
 <script src="scenes.js"></script>
 <script src="app.js"></script>
+<script>if('serviceWorker' in navigator)addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));</script>
 </body>
 </html>
