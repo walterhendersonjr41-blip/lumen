@@ -1,4 +1,4 @@
-/* Demo scenes and canned replies. Every chip here works offline, no key needed. */
+/* Built-in scenes: photos plus written descriptions the free AI uses as facts (and as an offline fallback). */
 window.LUMEN_SCENES = {
   station: {
     title: "Night pump", place: "Fuel island", src: "scenes/station.jpg",

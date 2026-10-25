@@ -95,10 +95,10 @@
 
   <div id="keySheet" class="sheet-backdrop" hidden>
     <div class="sheet" role="dialog" aria-label="AI settings">
-      <div class="sheet-head"><h2>Bring your own AI key</h2>
+      <div class="sheet-head"><h2>AI settings</h2>
         <button type="button" class="icon-btn" data-close aria-label="Close"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
       </div>
-      <p class="sheet-copy">The three demo scenes work without a key. To rewrite your own photos and answer any question, paste an xAI API key from <a href="https://console.x.ai" target="_blank" rel="noopener">console.x.ai</a>. It is saved only in this browser (localStorage) and sent only to api.x.ai. Usage is billed to your xAI account.</p>
+      <p class="sheet-copy">Lumen works free with no key: it answers about any photo (it checks the picture in your browser, then asks a free AI) and turns edits into a free AI redraw. For pixel-exact edits of the same photo and true vision answers, you can optionally paste your own xAI API key from <a href="https://console.x.ai" target="_blank" rel="noopener">console.x.ai</a>. It is saved only in this browser (localStorage) and sent only to api.x.ai. Usage is billed to your xAI account.</p>
       <form id="keyForm" class="key-form">
         <label>xAI API key<input id="keyInput" type="password" placeholder="xai-…" autocomplete="off" spellcheck="false"></label>
         <label>Vision chat model<input id="chatModel" type="text" spellcheck="false"></label>
@@ -113,6 +113,8 @@
   </div>
 </main>
 <script src="scenes.js"></script>
+<script src="ai-helper.js"></script>
+<script>AIHelper.init({ referrer: "lumen", noFab: true });</script>
 <script src="app.js"></script>
 <script>if('serviceWorker' in navigator)addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));</script>
 </body>
