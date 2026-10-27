@@ -8,8 +8,8 @@
   var DEFAULT_CHAT = "grok-4.3", DEFAULT_IMAGE = "grok-imagine-image-2.0";
   var MAX_UNDO = 8, MAX_HISTORY = 6, MAX_SIDE = 1024;
   var ASK = /^(what|who|where|why|how|when|which|is|are|was|were|does|do|did|can|could|would|whose|tell me|describe|explain)\b|looking my way|toward me|towards me|\?\s*$/i;
-  var NO_KEY = "That one needs live AI. Tap the key button up top and paste your own xAI key to let me answer anything and redraw the photo. The demo chips work without it.";
-  var DEMO_NOTE = "Demo mode: add your xAI key (key button, top right) to actually redraw the photo.";
+  var FREE_BUSY = "The free AI is busy right now. Try again in a minute, or add your own xAI key (key button, top right) for instant answers.";
+  var REDRAW_NOTE = "Free AI redraw: a new picture painted from the scene plus your edits, not a pixel-exact edit. For exact edits of the same photo, add your own xAI key (key button, top right).";
 
   var $ = function (id) { return document.getElementById(id); };
   var el = {
@@ -22,7 +22,7 @@
     keyClear: $("keyClear"), keyStatus: $("keyStatus")
   };
 
-  var state = { scene: "station", src: SCENES.station.src, edited: false, history: [], undo: [], busy: false, abort: null, lastSay: "" };
+  var state = { scene: "station", src: SCENES.station.src, edited: false, freeEdits: [], freeDesc: "", history: [], undo: [], busy: false, abort: null, lastSay: "" };
 
   /* ---------- storage ---------- */
   function store(k, v) { try { if (v == null || v === "") localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (e) {} }
@@ -67,7 +67,7 @@
   function setScene(id, src) {
     cancel();
     var s = SCENES[id];
-    state.scene = id; state.src = src || s.src; state.edited = false; state.history = []; state.undo = [];
+    state.scene = id; state.src = src || s.src; state.edited = false; state.history = []; state.undo = []; state.freeEdits = []; state.freeDesc = "";
     el.stage.src = state.src; el.place.textContent = s.place;
     renderChips(); setBubble({ say: s.greeting }); arrive(); updateSend();
     Array.prototype.forEach.call(el.sceneGrid.children, function (c) { c.classList.toggle("is-current", c.dataset.id === id); });
@@ -103,7 +103,7 @@
     store(LS.chat, el.chatModel.value.trim() === DEFAULT_CHAT ? "" : el.chatModel.value.trim());
     store(LS.image, el.imageModel.value.trim() === DEFAULT_IMAGE ? "" : el.imageModel.value.trim());
     el.keyInput.value = ""; refreshKeyDot();
-    el.keyStatus.textContent = apiKey() ? "Saved in this browser. Live AI is on." : "Settings saved. No key yet — demo mode.";
+    el.keyStatus.textContent = apiKey() ? "Saved in this browser. Live AI is on." : "Settings saved. No key yet: free AI is on (it redraws instead of editing exactly).";
   });
   el.keyClear.addEventListener("click", function () {
     store(LS.key, ""); el.keyInput.value = ""; refreshKeyDot();
@@ -153,16 +153,30 @@
     var key = apiKey();
     if (isAsk(cmd)) {
       var canned = cannedAnswer(cmd);
-      if (canned && (!key || !state.edited)) return Promise.resolve(answered(cmd, next, canned));
-      if (!key) { setBubble({ you: cmd, next: next, say: canned || NO_KEY }); return Promise.resolve(); }
+      if (key && canned && !state.edited) return Promise.resolve(answered(cmd, next, canned));
+      if (!key) {
+        setBusy("think"); setBubble({ kicker: "Free AI is looking", you: cmd, next: next, say: "…" });
+        return freeAsk(cmd, ctrl.signal).then(function (ans) { answered(cmd, next, ans); }, function (e) {
+          if (ctrl.signal.aborted) return;
+          setBubble({ you: cmd, next: next, say: canned || FREE_BUSY });
+        });
+      }
       setBusy("think"); setBubble({ kicker: "Reading the frame", you: cmd, next: next, say: "…" });
       return askVision(cmd, ctrl.signal).then(function (ans) { answered(cmd, next, ans); });
     }
     if (!key) {
-      var narr = cannedEdit(cmd);
-      setBubble({ you: cmd, next: next, say: narr || NO_KEY, note: narr ? DEMO_NOTE : "" });
-      if (narr) { pushHistory(cmd, narr); arrive(); }
-      return Promise.resolve();
+      setBusy("edit"); setBubble({ kicker: "Free AI is redrawing", you: cmd, next: next, say: editPhrase(cmd) + " This takes about 10 seconds." });
+      return freeRedraw(cmd, ctrl.signal).then(function (src) {
+        state.undo.push({ src: state.src, edits: state.freeEdits.slice(0, -1), desc: state.freeDesc });
+        if (state.undo.length > MAX_UNDO) state.undo.shift();
+        state.src = src; state.edited = true; el.stage.src = src;
+        var narr = "Here's a fresh picture with your change: " + cmd.replace(/[.!]+$/, "").toLowerCase() + ". Not quite right? Tap Undo or say it another way.";
+        setBubble({ you: cmd, next: next, say: narr, note: REDRAW_NOTE }); pushHistory(cmd, narr); arrive();
+      }, function (err) {
+        state.freeEdits.pop();
+        if (ctrl.signal.aborted) throw err;
+        setBubble({ you: cmd, next: next, say: "The free image AI didn't answer just now. Try again in a minute, or add your own xAI key for exact edits." });
+      });
     }
     setBusy("edit"); setBubble({ kicker: "Rewriting the photograph", you: cmd, next: next, say: editPhrase(cmd) });
     return editImage(cmd, ctrl.signal).then(function (src) {
@@ -221,6 +235,122 @@
     });
   }
   var SYSTEM = "You are Lumen, a small glowing guide standing inside the user's photograph. Speak in first person from where you stand in the picture, warm and concrete, in 1 to 3 short sentences. Describe what is visible, and when asked about things past the edge of the frame, behind objects, or looking back toward the viewer, make a plausible, grounded guess that fits the scene and say it as what you see. Never mention being an AI or a model.";
+  /* Free keyless AI (no sign-up, no key). The free text AI (Pollinations) can't see pixels, so Lumen
+     "looks" at the photo itself in this browser: COCO-SSD object detection (TensorFlow.js) plus light,
+     colour and layout stats. Those facts (or the built-in scene's written description) go to the free
+     text AI. Edits without a key become a free redraw (Pollinations image), clearly labelled. */
+  var POLL_TEXT = "https://text.pollinations.ai/openai", POLL_IMG = "https://image.pollinations.ai/prompt/";
+  var TF_URL = "https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js";
+  var COCO_URL = "https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js";
+  var MOBILENET_URL = "https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.1/dist/mobilenet.min.js";
+  var lookCache = {}, modelP = null, netP = null;
+  function netModel() {
+    if (!netP) netP = cocoModel().then(function () { return window.mobilenet ? 0 : loadScript(MOBILENET_URL); })
+      .then(function () { return window.mobilenet.load({ version: 2, alpha: 0.5 }); })
+      .catch(function (e) { netP = null; throw e; });
+    return netP;
+  }
+  function loadScript(u) { return new Promise(function (ok, bad) { var t = document.createElement("script"); t.src = u; t.async = true; t.onload = ok; t.onerror = function () { bad(new Error("script " + u)); }; document.head.appendChild(t); }); }
+  function cocoModel() {
+    if (!modelP) modelP = (window.cocoSsd ? Promise.resolve() : loadScript(TF_URL).then(function () { return loadScript(COCO_URL); }))
+      .then(function () { return window.cocoSsd.load({ base: "lite_mobilenet_v2" }); })
+      .catch(function (e) { modelP = null; throw e; });
+    return modelP;
+  }
+  function colourName(r, g, b) {
+    var mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 510, d = mx - mn;
+    if (d < 22) return l > .8 ? "white" : l < .18 ? "black" : l > .55 ? "light grey" : "grey";
+    var h = mx === r ? ((g - b) / d + 6) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4; h *= 60;
+    var n = h < 15 ? "red" : h < 40 ? "orange" : h < 65 ? "yellow" : h < 160 ? "green" : h < 200 ? "teal" : h < 255 ? "blue" : h < 290 ? "purple" : h < 335 ? "pink" : "red";
+    if (n === "orange" && l < .4) n = "brown";
+    return (l < .3 ? "dark " : l > .72 ? "pale " : "") + n;
+  }
+  function imgEl(src) { return new Promise(function (ok, bad) { var i = new Image(); i.crossOrigin = "anonymous"; i.onload = function () { ok(i); }; i.onerror = bad; i.src = src; }); }
+  function lookAt(src) {
+    if (lookCache[src]) return Promise.resolve(lookCache[src]);
+    return imgEl(src).then(function (img) {
+      var w = 96, h = Math.max(1, Math.round(96 * img.naturalHeight / img.naturalWidth)), c = document.createElement("canvas");
+      c.width = w; c.height = h; var x = c.getContext("2d"); x.drawImage(img, 0, 0, w, h);
+      var d = x.getImageData(0, 0, w, h).data, sum = 0, bins = {}, top = {}, bottom = {};
+      for (var p = 0; p < d.length; p += 4) {
+        var r = d[p], g = d[p + 1], b = d[p + 2], name = colourName(r, g, b), row = (p / 4) / w | 0;
+        sum += .299 * r + .587 * g + .114 * b; bins[name] = (bins[name] || 0) + 1;
+        if (row < h / 3) top[name] = (top[name] || 0) + 1; else if (row > 2 * h / 3) bottom[name] = (bottom[name] || 0) + 1;
+      }
+      function best(o, k) { return Object.keys(o).sort(function (a, b) { return o[b] - o[a]; }).slice(0, k); }
+      var bright = sum / (d.length / 4), facts = [];
+      facts.push("Overall light: " + (bright < 60 ? "dark, night or low light" : bright < 110 ? "dim" : bright < 170 ? "normal daylight or indoor light" : "very bright") + ".");
+      facts.push("Main colours: " + best(bins, 4).join(", ") + ". Top third mostly " + best(top, 2).join(" and ") + "; bottom third mostly " + best(bottom, 2).join(" and ") + ".");
+      facts.push("Shape: " + (img.naturalWidth > img.naturalHeight * 1.1 ? "landscape" : img.naturalHeight > img.naturalWidth * 1.1 ? "portrait" : "square") + " photo.");
+      return cocoModel().then(function (m) { return m.detect(img, 12, 0.4); }).then(function (preds) {
+        if (preds.length) {
+          var counts = {}; preds.forEach(function (q) { counts[q.class] = (counts[q.class] || 0) + 1; });
+          var where = preds.slice(0, 8).map(function (q) {
+            var cx = (q.bbox[0] + q.bbox[2] / 2) / img.naturalWidth, cy = (q.bbox[1] + q.bbox[3] / 2) / img.naturalHeight, area = q.bbox[2] * q.bbox[3] / (img.naturalWidth * img.naturalHeight);
+            return q.class + " (" + (cy < .35 ? "upper " : cy > .65 ? "lower " : "") + (cx < .35 ? "left" : cx > .65 ? "right" : "centre") + (area > .25 ? ", large in frame" : area < .03 ? ", small/far" : "") + ")";
+          });
+          facts.unshift("Objects detected: " + Object.keys(counts).map(function (k) { return counts[k] > 1 ? counts[k] + " × " + k : k; }).join(", ") + ". Positions: " + where.join("; ") + ".");
+        } else facts.unshift("No common objects detected (it may be a landscape, texture, close-up, or document).");
+        return netModel().then(function (n) { return n.classify(img, 3); }).then(function (cls) {
+          var good = cls.filter(function (c) { return c.probability > 0.08; }).map(function (c) { return c.className.split(",")[0] + " (" + Math.round(c.probability * 100) + "%)"; });
+          if (good.length) facts.unshift("Best guesses for the overall picture: " + good.join(", ") + ".");
+          return facts.join(" ");
+        }, function () { return facts.join(" "); });
+      }, function () { return facts.join(" ") + " (Object detection could not load on this device.)"; });
+    }).then(function (f) { lookCache[src] = f; return f; });
+  }
+  function sceneFacts() {
+    var s = SCENES[state.scene];
+    var base = s && s.answers && s.answers.see && !state.edited ? Promise.resolve(s.title + " (" + s.place + "). " + Object.keys(s.answers).map(function (k) { return s.answers[k]; }).join(" "))
+      : lookAt(state.src).then(function (f) { return (state.freeDesc ? "This picture was painted from: " + state.freeDesc + ". " : "") + "What the camera check found: " + f; });
+    return base;
+  }
+  function tfetch(url, opts, ms, outer) {
+    var c = new AbortController(), t = setTimeout(function () { c.abort(); }, ms);
+    if (outer) { if (outer.aborted) c.abort(); else outer.addEventListener("abort", function () { c.abort(); }); }
+    opts.signal = c.signal;
+    return fetch(url, opts).then(function (r) { clearTimeout(t); return r; }, function (e) { clearTimeout(t); throw e; });
+  }
+  function pollText(msgs, signal, onWait) {
+    var sys = msgs[0].role === "system" ? msgs.shift().content : "";
+    var p = window.AIHelper.ask(sys, msgs, { onWait: onWait });
+    return new Promise(function (ok, bad) {
+      if (signal) signal.addEventListener("abort", function () { var e = new Error("aborted"); e.name = "AbortError"; bad(e); });
+      p.then(function (t) { ok(String(t).replace(/\*\*/g, "").trim()); }, bad);
+    });
+  }
+  function waitNote(sec) { el.kicker.hidden = false; el.kicker.textContent = "Free AI: 1 reply every 30 s · starts in " + sec + " s"; }
+  function freeAsk(cmd, signal) {
+    return sceneFacts().then(function (facts) {
+      var builtIn = !!(SCENES[state.scene].answers && !state.edited && SCENES[state.scene].answers.see);
+      var sys = builtIn ? SYSTEM + " You can't see the image directly; this is what is in it, so stay consistent with it: " + facts
+        : "You are Lumen, a small glowing guide standing inside the user's photograph. This is what you see from where you stand: " + facts +
+          " Always answer, in first person, in 1 to 2 short sentences, describing it as what you see: the scene type, the objects listed and where they are, the light and the main colours. Do not add furniture, rooms, people or objects that are not listed. For anything outside the frame or behind you, give one short, modest guess that fits this scene. Never refuse, never say you can't see, never mention being an AI or a camera check.";
+      return pollText([{ role: "system", content: sys }].concat(state.history.slice(-MAX_HISTORY).filter(function (m) { return typeof m.content === "string"; })).concat([{ role: "user", content: cmd }]), signal, waitNote);
+    });
+  }
+  function freeRedraw(cmd, signal) {
+    state.freeEdits.push(cmd.replace(/[.!]+$/, ""));
+    var s0 = SCENES[state.scene];
+    return (state.freeDesc ? Promise.resolve(state.freeDesc)
+      : s0 && s0.answers && s0.answers.see && !state.edited ? Promise.resolve(s0.title + ", " + s0.answers.see)
+      : lookAt(state.src).then(function (f) { return f.replace(/\s*\(\d+%\)/g, "").replace(/Best guesses for the overall picture: /, "Scene: ").replace(/Positions: [^.]*\.\s*/, "").replace(/Shape: [^.]*\.\s*/, "").slice(0, 400); })
+    ).then(function (desc) {
+      state.freeDesc = desc;
+      return imgEl(state.src).then(function (i) { return [i.naturalWidth, i.naturalHeight]; }, function () { return [1024, 768]; }).then(function (wh) {
+        var s = Math.min(1, 1024 / Math.max(wh[0], wh[1])), W = Math.round(wh[0] * s / 16) * 16, H = Math.round(wh[1] * s / 16) * 16;
+        var prompt = "Photorealistic photo, same camera angle and lighting. The scene MUST still contain every object here, each in the same place: " + desc +
+          ". Apply only these small changes, and keep each changed part attached to its object (an opened car door stays on the car): " + state.freeEdits.join("; ") +
+          ". Do not remove, hide or replace any vehicle, person, building or object.";
+        var url = POLL_IMG + encodeURIComponent(prompt.slice(0, 900)) + "?width=" + W + "&height=" + H + "&nologo=true&model=sana&referrer=lumen&seed=" + (Math.random() * 1e6 | 0);
+        function once() {
+          return tfetch(url, {}, 60000, signal).then(function (r) { if (!r.ok) throw new Error("img " + r.status); return r.blob(); })
+            .then(function (b) { if (!/^image\//.test(b.type) || b.size < 2000) throw new Error("bad image"); return new Promise(function (ok) { var fr = new FileReader(); fr.onload = function () { ok(fr.result); }; fr.readAsDataURL(b); }); });
+        }
+        return once().catch(function () { if (signal && signal.aborted) throw new Error("aborted"); return new Promise(function (r) { setTimeout(r, 4000); }).then(once); });
+      });
+    });
+  }
   function askVision(cmd, signal) {
     return toJpegDataUrl(state.src).then(function (url) {
       var msgs = [{ role: "system", content: SYSTEM }].concat(state.history.slice(-MAX_HISTORY));
@@ -232,19 +362,11 @@
       return (t || "I looked, but nothing came back. Try asking another way.").trim();
     });
   }
-  function editPrompt(cmd) {
-    var see = (SCENES[state.scene] && SCENES[state.scene].answers && SCENES[state.scene].answers.see) || "";
-    return "Make one small, local change to this exact photograph: " + cmd + ". " +
-      (see && !state.edited ? "The photo shows: " + see + " " : "") +
-      "Change ONLY the object named in the request (for example, a door that opens stays attached to its car or building). " +
-      "Do NOT remove, replace, move or resize anything else: every vehicle, person, building, sign and object must stay exactly where it is. " +
-      "Same camera angle, framing, lighting, colors and style. Photorealistic.";
-  }
   function editImage(cmd, signal) {
     return toJpegDataUrl(state.src).then(function (url) {
       return xai("/images/edits", {
         model: imageModel(), response_format: "b64_json",
-        prompt: editPrompt(cmd),
+        prompt: "Make one small, local change to this exact photograph: " + cmd + ". Change ONLY the object named; an opened door stays attached to its car or building. Do NOT remove, replace or move any vehicle, person, building or object. Same camera angle, framing, lighting and style. Photorealistic.",
         image: { url: url, type: "image_url" }
       }, signal);
     }).then(function (j) {
@@ -263,7 +385,7 @@
     r.onload = function () {
       toJpegDataUrl(r.result).then(function (url) {
         setScene("upload", url);
-        if (!apiKey()) setBubble({ say: SCENES.upload.greeting, note: "Add your xAI key (key button, top right) so I can answer and redraw this photo." });
+        if (!apiKey()) { setBubble({ say: SCENES.upload.greeting, note: "Free AI is on: ask me anything about this photo, or tell me what to change and I'll redraw it." }); lookAt(url).catch(function () {}); }
       }, function () { setBubble({ say: "I couldn't open that image. Try a JPG or PNG." }); });
     };
     r.readAsDataURL(file);
@@ -284,7 +406,9 @@
   el.input.addEventListener("input", updateSend);
   el.undo.addEventListener("click", function () {
     if (!state.undo.length || state.busy) return;
-    state.src = state.undo.pop(); el.stage.src = state.src; state.edited = state.undo.length > 0;
+    var u = state.undo.pop();
+    if (typeof u === "string") state.src = u; else { state.src = u.src; state.freeEdits = u.edits; state.freeDesc = u.desc; }
+    el.stage.src = state.src; state.edited = state.undo.length > 0;
     setBubble({ say: "Back one step." }); updateSend();
   });
   el.stop.addEventListener("click", function () { cancel(); stopSpeaking(); setBubble({ say: "Stopped. I'm still in the picture." }); });
@@ -330,5 +454,5 @@
 
   /* ---------- boot ---------- */
   renderSceneGrid(); refreshKeyDot(); setScene("station");
-  window.__lumen = { state: state, run: run, setScene: setScene, splitCommands: splitCommands, isAsk: isAsk };
+  window.__lumen = { state: state, run: run, look: function () { return lookAt(state.src); }, setScene: setScene, splitCommands: splitCommands, isAsk: isAsk };
 })();
